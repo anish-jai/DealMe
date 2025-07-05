@@ -112,6 +112,59 @@ class DealMeDB {
     return btoa(hashString).replace(/[^a-zA-Z0-9]/g, '').substring(0, 16);
   }
 
+  standardizeMerchantName(merchantName) {
+    if (!merchantName) return '';
+    
+    let standardized = merchantName.toLowerCase();
+    
+    // Remove common suffixes and prefixes
+    standardized = standardized
+      .replace(/\.(com|net|org|co|io)\b/g, '') // Remove domain extensions
+      .replace(/\s*-\s*new card offer\s*$/i, '') // Remove offer text
+      .replace(/\s*-\s*promotional.*$/i, '') // Remove promotional text
+      .replace(/\s*-\s*.*\s+(steakhouse|restaurant|bar|grill).*$/i, '') // Remove restaurant descriptors
+      .replace(/\s*-\s*.*\s+(hotel|resort|destination).*$/i, '') // Remove hotel descriptors
+      .replace(/\s*-\s*.*\s+(apparel|clothing|merchandise).*$/i, '') // Remove product descriptors
+      .replace(/\s*-\s*.*\s+(planning|service).*$/i, '') // Remove service descriptors
+      .replace(/\s*\+.*$/i, '') // Remove plus signs and everything after
+      .replace(/\s*\&\s*(internet|cable).*$/i, '') // Remove utility descriptors
+      .trim();
+    
+    // Add spaces before capital letters in compound names
+    standardized = standardized.replace(/([a-z])([A-Z])/g, '$1 $2');
+    
+    // Replace hyphens with spaces
+    standardized = standardized.replace(/-/g, ' ');
+    
+    // Clean up spacing and capitalization
+    standardized = standardized
+      .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+      .replace(/^\s+|\s+$/g, '') // Trim whitespace
+      .replace(/\b\w/g, l => l.toUpperCase()); // Capitalize first letter of each word
+    
+    return standardized;
+  }
+
+  cleanDiscount(discount) {
+    if (!discount) return '';
+    
+    // Remove non-discount text
+    let cleaned = discount
+      .replace(/Add\s*to\s*Card[^\w]*/gi, '') // Remove "Add to Card"
+      .replace(/Expires\s*\d{2}\/\d{2}\/\d{4}/gi, '') // Remove expiry dates
+      .replace(/[A-Z][a-z]+\s*-\s*New\s*Card\s*Offer/gi, '') // Remove merchant name with "New Card Offer"
+      .replace(/[\w\.-]+\.(com|net|org|co|io)\b/gi, '') // Remove domain names
+      .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+      .trim();
+    
+    // If it ends with a period but doesn't look like a complete sentence, remove it
+    if (cleaned.endsWith('.') && !cleaned.includes(' ')) {
+      cleaned = cleaned.slice(0, -1);
+    }
+    
+    return cleaned;
+  }
+
   parseExpirationDate(expiryDateString) {
     if (!expiryDateString) return null;
     
@@ -208,7 +261,13 @@ class DealMeDB {
         lastSeen: new Date().toISOString(),
         seenCount: 1,
         isActive: true,
-        parsedExpiryDate: parsedExpiryDate ? parsedExpiryDate.toISOString() : null
+        parsedExpiryDate: parsedExpiryDate ? parsedExpiryDate.toISOString() : null,
+        // Standardized fields
+        originalMerchant: offer.merchant,
+        merchant: this.standardizeMerchantName(offer.merchant),
+        originalDiscount: offer.discount,
+        discount: this.cleanDiscount(offer.discount),
+        merchantLink: offer.merchantLink || null
       };
 
       data.offers.push(newOffer);

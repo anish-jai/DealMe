@@ -18,7 +18,9 @@
   "content_scripts": [
     {
       "matches": [
-        "https://global.americanexpress.com/offers/eligible*"
+        "https://global.americanexpress.com/offers/eligible*",
+        "https://www.groupon.com/*",
+        "https://secure.bankofamerica.com/customer-deals/*"
       ],
       "js": ["db.js", "content.js"],
       "css": ["content.css"]
@@ -26,7 +28,8 @@
   ],
   "host_permissions": [
     "https://global.americanexpress.com/*",
-    "https://www.americanexpress.com/*"
+    "https://www.americanexpress.com/*",
+    "https://www.groupon.com/*"
   ],
   "icons": {
     "16": "icons/icon16.png",

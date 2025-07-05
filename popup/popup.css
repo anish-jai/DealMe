@@ -250,3 +250,24 @@ main {
 .offer-item.inactive .offer-header h4 {
   color: #999;
 }
+
+.offer-item.clickable {
+  cursor: pointer;
+  border-left-color: #4CAF50;
+  transition: all 0.3s ease;
+}
+
+.offer-item.clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+  border-left-color: #388E3C;
+}
+
+.offer-item.clickable:active {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.offer-item.clickable .offer-header h4 {
+  color: #4CAF50;
+}

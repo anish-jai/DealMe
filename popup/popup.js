@@ -30,8 +30,8 @@ async function loadSavedOffers() {
   try {
     console.log('Loading saved offers...');
     const offers = await dealMeDB.getAllOffers({ 
-      sortBy: 'lastSeen', 
-      sortOrder: 'desc' 
+      sortBy: 'merchant', 
+      sortOrder: 'asc' 
     });
     console.log('Loaded offers:', offers);
     const stats = await dealMeDB.getStats();
@@ -41,9 +41,10 @@ async function loadSavedOffers() {
     const offersContent = offers.length === 0 ? 
       '<p>No offers saved yet. Visit an Amex offers page and click "SCRAPE ME"!</p>' :
       offers.map(offer => `
-        <div class="offer-item ${!offer.isActive ? 'inactive' : ''}">
+        <div class="offer-item ${!offer.isActive ? 'inactive' : ''} ${offer.merchantLink ? 'clickable' : ''}" 
+             ${offer.merchantLink ? `data-merchant-link="${offer.merchantLink}"` : ''}>
           <div class="offer-header">
-            <h4>${offer.merchant}</h4>
+            <h4>${offer.merchant}${offer.merchantLink ? ' 🔗' : ''}</h4>
             <div class="offer-meta">
               <span class="offer-date">${formatDate(offer.lastSeen)}</span>
               ${offer.seenCount > 1 ? `<span class="seen-count">×${offer.seenCount}</span>` : ''}
@@ -101,6 +102,17 @@ async function loadSavedOffers() {
       });
       console.log('Export button event listener attached');
     }
+    
+    // Add click event listeners for clickable offer items
+    const clickableOffers = document.querySelectorAll('.offer-item.clickable');
+    clickableOffers.forEach(offerElement => {
+      offerElement.addEventListener('click', (e) => {
+        const merchantLink = offerElement.getAttribute('data-merchant-link');
+        if (merchantLink) {
+          chrome.tabs.create({ url: merchantLink });
+        }
+      });
+    });
     
   } catch (error) {
     console.error('Error loading offers:', error);

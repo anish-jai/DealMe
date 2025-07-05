@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "DealMe",
+  "version": "1.0.0",
+  "description": "Chrome extension for deal tracking and management",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "downloads"
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "DealMe"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://global.americanexpress.com/offers/eligible*"
+      ],
+      "js": ["db.js", "content.js"],
+      "css": ["content.css"]
+    }
+  ],
+  "host_permissions": [
+    "https://global.americanexpress.com/*",
+    "https://www.americanexpress.com/*"
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

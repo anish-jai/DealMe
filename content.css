@@ -1,0 +1,36 @@
+#dealme-scrape-button:hover {
+  background: #0056CC !important;
+  transform: scale(1.05) !important;
+}
+
+#dealme-scrape-button:active {
+  transform: scale(0.95) !important;
+}
+
+.dealme-message {
+  animation: dealme-slide-in 0.3s ease-out;
+}
+
+@keyframes dealme-slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.dealme-message.dealme-fade-out {
+  animation: dealme-fade-out 0.3s ease-in;
+}
+
+@keyframes dealme-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}

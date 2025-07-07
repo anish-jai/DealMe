@@ -2,23 +2,113 @@ class DealMeDB {
   constructor() {
     this.storageKey = 'dealme_database';
     this.metaKey = 'dealme_meta';
+    this.isInitialized = false;
+    this.initPromise = null;
+    this.retryCount = 0;
+    this.maxRetries = 3;
+    
+    // Start initialization immediately and aggressively
     this.init();
+    
+    // Also try to warm up Chrome storage
+    this.warmUpStorage();
+  }
+
+  warmUpStorage() {
+    // Warm up Chrome storage API to reduce first-access latency
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.get(['__warmup_key__'], () => {
+          // This is just to warm up the storage API
+          if (chrome.runtime.lastError) {
+            console.log('Storage warmup completed with expected error');
+          } else {
+            console.log('Storage warmup completed successfully');
+          }
+        });
+      }
+    } catch (error) {
+      console.log('Storage warmup failed, but this is expected:', error.message);
+    }
+  }
+
+  logStorageUsage() {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.getBytesInUse(null, (bytesInUse) => {
+        if (chrome.runtime.lastError) {
+          console.log('Could not get storage usage:', chrome.runtime.lastError.message);
+        } else {
+          const sizeInKB = (bytesInUse / 1024).toFixed(2);
+          const sizeInMB = (bytesInUse / (1024 * 1024)).toFixed(2);
+          const percentageUsed = ((bytesInUse / (10 * 1024 * 1024)) * 100).toFixed(2);
+          
+          console.log(`📊 Storage Usage: ${bytesInUse} bytes (${sizeInKB} KB / ${sizeInMB} MB) - ${percentageUsed}% of 10MB limit`);
+          
+          if (bytesInUse > 8 * 1024 * 1024) { // 8MB warning threshold
+            console.warn('⚠️ Storage usage is approaching the 10MB limit!');
+          }
+        }
+      });
+    }
   }
 
   async init() {
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    this.initPromise = this._performInit();
+    return this.initPromise;
+  }
+
+  async _performInit() {
     try {
-      console.log('DealMeDB initializing...');
+      console.log('DealMeDB initializing...', 'Attempt:', this.retryCount + 1);
+      
+      // Wait for Chrome APIs to be ready
+      if (typeof chrome === 'undefined' || !chrome.storage) {
+        throw new Error('Chrome storage API not available');
+      }
+
       const meta = await this.getMeta();
       console.log('Existing meta:', meta);
+      
       if (!meta) {
         console.log('No meta found, creating initial schema...');
         await this.createInitialSchema();
       } else {
         console.log('Meta found, database already initialized');
+        // Verify data integrity
+        const data = await this.getData();
+        if (!data.offers) {
+          console.log('Data corruption detected, reinitializing...');
+          await this.createInitialSchema();
+        }
       }
+      
+      this.isInitialized = true;
+      console.log('DealMeDB initialization complete');
+      return true;
     } catch (error) {
       console.error('DealMeDB initialization error:', error);
+      
+      if (this.retryCount < this.maxRetries) {
+        this.retryCount++;
+        console.log(`Retrying initialization... (${this.retryCount}/${this.maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+        this.initPromise = null; // Reset promise to allow retry
+        return this.init();
+      } else {
+        throw new Error(`Failed to initialize database after ${this.maxRetries} attempts: ${error.message}`);
+      }
     }
+  }
+
+  async ensureInitialized() {
+    if (!this.isInitialized) {
+      await this.init();
+    }
+    return this.isInitialized;
   }
 
   async createInitialSchema() {
@@ -51,15 +141,28 @@ class DealMeDB {
 
   async getData() {
     return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Storage operation timed out after 10 seconds'));
+      }, 10000);
+      
       chrome.storage.local.get([this.storageKey], (result) => {
+        clearTimeout(timeout);
         if (chrome.runtime.lastError) {
           console.error('Chrome storage error:', chrome.runtime.lastError);
-          reject(chrome.runtime.lastError);
+          reject(new Error(`Storage error: ${chrome.runtime.lastError.message}`));
         } else {
           console.log('Raw storage result:', result);
           console.log('Storage key:', this.storageKey);
           console.log('Data found:', result[this.storageKey]);
-          resolve(result[this.storageKey] || {});
+          const data = result[this.storageKey] || {};
+          
+          // Validate data structure
+          if (typeof data !== 'object') {
+            console.warn('Invalid data structure, reinitializing...');
+            resolve({});
+          } else {
+            resolve(data);
+          }
         }
       });
     });
@@ -71,6 +174,7 @@ class DealMeDB {
         if (chrome.runtime.lastError) {
           reject(chrome.runtime.lastError);
         } else {
+          this.logStorageUsage();
           resolve();
         }
       });
@@ -79,9 +183,14 @@ class DealMeDB {
 
   async getMeta() {
     return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Meta storage operation timed out after 10 seconds'));
+      }, 10000);
+      
       chrome.storage.local.get([this.metaKey], (result) => {
+        clearTimeout(timeout);
         if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
+          reject(new Error(`Meta storage error: ${chrome.runtime.lastError.message}`));
         } else {
           resolve(result[this.metaKey] || null);
         }
@@ -95,6 +204,7 @@ class DealMeDB {
         if (chrome.runtime.lastError) {
           reject(chrome.runtime.lastError);
         } else {
+          this.logStorageUsage();
           resolve();
         }
       });
@@ -294,6 +404,8 @@ class DealMeDB {
         merchantCount: data.merchants.length 
       });
 
+      console.log(`✅ Added offer: ${newOffer.merchant} - ${newOffer.discount}`);
+
       // Run cleanup if it's been more than 24 hours since last cleanup
       await this.autoCleanupIfNeeded();
 
@@ -315,33 +427,72 @@ class DealMeDB {
 
   async getAllOffers(options = {}) {
     try {
+      await this.ensureInitialized();
       const data = await this.getData();
       console.log('getAllOffers - raw data:', data);
       let offers = data.offers || [];
       console.log('getAllOffers - offers array:', offers);
 
+      // Text search
+      if (options.search && options.search.trim()) {
+        const searchTerm = options.search.toLowerCase().trim();
+        offers = offers.filter(offer => {
+          return (
+            (offer.merchant && offer.merchant.toLowerCase().includes(searchTerm)) ||
+            (offer.discount && offer.discount.toLowerCase().includes(searchTerm)) ||
+            (offer.description && offer.description.toLowerCase().includes(searchTerm)) ||
+            (offer.category && offer.category.toLowerCase().includes(searchTerm))
+          );
+        });
+      }
+
+      // Merchant filter
       if (options.merchant) {
         offers = offers.filter(o => o.merchant === options.merchant);
       }
 
+      // Category filter
       if (options.category) {
         offers = offers.filter(o => o.category === options.category);
       }
 
+      // Source filter
+      if (options.source) {
+        offers = offers.filter(o => o.source === options.source);
+      }
+
+      // Active status filter
       if (options.isActive !== undefined) {
         offers = offers.filter(o => o.isActive === options.isActive);
       }
 
+      // Sorting
       if (options.sortBy) {
         offers = offers.sort((a, b) => {
-          const aVal = a[options.sortBy];
-          const bVal = b[options.sortBy];
-          return options.sortOrder === 'asc' ? 
-            (aVal > bVal ? 1 : -1) : 
-            (aVal < bVal ? 1 : -1);
+          let aVal = a[options.sortBy];
+          let bVal = b[options.sortBy];
+          
+          // Handle date fields
+          if (options.sortBy.includes('Date') || options.sortBy === 'lastSeen' || options.sortBy === 'createdAt') {
+            aVal = new Date(aVal);
+            bVal = new Date(bVal);
+          }
+          
+          // Handle string comparisons
+          if (typeof aVal === 'string' && typeof bVal === 'string') {
+            aVal = aVal.toLowerCase();
+            bVal = bVal.toLowerCase();
+          }
+          
+          if (options.sortOrder === 'asc') {
+            return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+          } else {
+            return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+          }
         });
       }
 
+      // Limit results
       if (options.limit) {
         offers = offers.slice(0, options.limit);
       }
@@ -350,6 +501,28 @@ class DealMeDB {
       return offers;
     } catch (error) {
       console.error('Error getting offers:', error);
+      return [];
+    }
+  }
+
+  async getUniqueCategories() {
+    try {
+      const data = await this.getData();
+      const categories = [...new Set(data.offers.map(o => o.category).filter(Boolean))];
+      return categories.sort();
+    } catch (error) {
+      console.error('Error getting categories:', error);
+      return [];
+    }
+  }
+
+  async getUniqueSources() {
+    try {
+      const data = await this.getData();
+      const sources = [...new Set(data.offers.map(o => o.source).filter(Boolean))];
+      return sources.sort();
+    } catch (error) {
+      console.error('Error getting sources:', error);
       return [];
     }
   }
@@ -419,6 +592,7 @@ class DealMeDB {
       await this.setData(data);
       console.log('clearAllOffers: Data saved, updating meta...');
       await this.updateMeta({ offerCount: 0, merchantCount: 0 });
+      console.log('🗑️ Cleared all offers from database');
       console.log('clearAllOffers: Meta updated, operation complete');
       return { success: true };
     } catch (error) {
@@ -429,6 +603,7 @@ class DealMeDB {
 
   async getStats() {
     try {
+      await this.ensureInitialized();
       const data = await this.getData();
       const meta = await this.getMeta();
       
@@ -537,6 +712,10 @@ class DealMeDB {
         merchantCount: data.merchants.length 
       });
 
+      if (totalCleaned > 0) {
+        console.log(`🧹 Cleanup completed: Removed ${totalCleaned} offers (${expiredCount} expired, ${retentionCount} old). ${data.offers.length} offers remaining.`);
+      }
+
       return { 
         success: true, 
         cleanedCount: totalCleaned,
@@ -578,10 +757,57 @@ class DealMeDB {
         merchantCount: importData.data.merchants.length
       });
 
+      console.log(`📥 Imported ${importData.data.offers.length} offers from backup`);
+
       return { success: true, importedOffers: importData.data.offers.length };
     } catch (error) {
       console.error('Error importing data:', error);
       return { success: false, error: error.message };
+    }
+  }
+
+  async getOffersForDomain(domain) {
+    try {
+      const data = await this.getData();
+      const offers = data.offers || [];
+      const cleanDomain = domain.toLowerCase().replace(/^www\./, '');
+      
+      const matchingOffers = offers.filter(offer => {
+        if (!offer.merchant) return false;
+        
+        const merchantLower = offer.merchant.toLowerCase();
+        const merchantClean = merchantLower.replace(/\s+/g, '');
+        
+        // Direct domain match
+        if (cleanDomain.includes(merchantClean)) {
+          return true;
+        }
+        
+        // Check if merchant name contains domain
+        if (merchantClean.includes(cleanDomain.replace(/\.(com|net|org|co|io)$/g, ''))) {
+          return true;
+        }
+        
+        // Check merchant link
+        if (offer.merchantLink) {
+          try {
+            const linkUrl = new URL(offer.merchantLink);
+            const linkDomain = linkUrl.hostname.toLowerCase().replace(/^www\./, '');
+            if (linkDomain === cleanDomain) {
+              return true;
+            }
+          } catch (e) {
+            // Invalid URL, skip
+          }
+        }
+        
+        return false;
+      });
+      
+      return matchingOffers;
+    } catch (error) {
+      console.error('Error getting offers for domain:', error);
+      return [];
     }
   }
 }

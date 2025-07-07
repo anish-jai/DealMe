@@ -5,21 +5,100 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DealMe</title>
   <link rel="stylesheet" href="popup.css">
+  <!-- Load database immediately for faster initialization -->
+  <script src="../db.js"></script>
 </head>
 <body>
   <div class="container">
     <header>
       <h1>DealMe</h1>
+      <!-- Tab Navigation -->
+      <div class="tab-navigation">
+        <button class="tab-btn active" data-tab="deals">💳 Deals</button>
+        <button class="tab-btn" data-tab="chat">💬 Chat</button>
+      </div>
     </header>
     <main>
-      <div class="content">
-        <p>Welcome to DealMe extension!</p>
-        <button id="actionBtn" class="primary-btn">Get Started</button>
-        <div id="offersList" class="offers-list"></div>
+      <!-- Deals Tab Content -->
+      <div id="deals-tab" class="tab-content active">
+        <div class="content">
+          <p>Welcome to DealMe extension!</p>
+          <button id="actionBtn" class="primary-btn">Get Started</button>
+          
+          <!-- Search and Filter Controls -->
+          <div id="searchControls" class="search-controls" style="display: none;">
+            <div class="search-section">
+              <input type="text" id="searchInput" placeholder="Search deals by merchant or discount..." class="search-input">
+              <button id="clearSearch" class="clear-btn">✕</button>
+            </div>
+            
+            <div class="filters-section">
+              <div class="filter-group">
+                <label for="categoryFilter">Category:</label>
+                <select id="categoryFilter" class="filter-select">
+                  <option value="">All Categories</option>
+                </select>
+              </div>
+              
+              <div class="filter-group">
+                <label for="sourceFilter">Source:</label>
+                <select id="sourceFilter" class="filter-select">
+                  <option value="">All Sources</option>
+                </select>
+              </div>
+              
+              <div class="filter-group">
+                <label for="sortFilter">Sort by:</label>
+                <select id="sortFilter" class="filter-select">
+                  <option value="lastSeen-desc">Recent First</option>
+                  <option value="merchant-asc">Merchant A-Z</option>
+                  <option value="merchant-desc">Merchant Z-A</option>
+                  <option value="createdAt-desc">Newest First</option>
+                  <option value="createdAt-asc">Oldest First</option>
+                </select>
+              </div>
+            </div>
+            
+            <div class="filter-actions">
+              <button id="resetFilters" class="reset-btn">Reset Filters</button>
+            </div>
+          </div>
+          
+          <div id="offersList" class="offers-list"></div>
+        </div>
+      </div>
+
+      <!-- Chat Tab Content -->
+      <div id="chat-tab" class="tab-content">
+        <div class="chat-container">
+          <div class="chat-header">
+            <h3>🤖 Deal Assistant</h3>
+            <p>Ask me about deals, products, or shopping advice!</p>
+          </div>
+          
+          <div class="chat-messages" id="chatMessages">
+            <div class="message bot-message">
+              <div class="message-avatar">🤖</div>
+              <div class="message-content">
+                <p>Hi! I'm your AI deal assistant. I can help you find the best deals, compare prices, and give shopping advice. What can I help you with today?</p>
+              </div>
+            </div>
+          </div>
+          
+          <div class="chat-input-container">
+            <div class="chat-input-wrapper">
+              <input type="text" id="chatInput" placeholder="Ask about deals, products, or shopping..." class="chat-input">
+              <button id="sendMessage" class="send-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
   </div>
-  <script src="../db.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

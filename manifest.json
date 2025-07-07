@@ -20,16 +20,21 @@
       "matches": [
         "https://global.americanexpress.com/offers/eligible*",
         "https://www.groupon.com/*",
-        "https://secure.bankofamerica.com/customer-deals/*"
+        "https://secure.bankofamerica.com/customer-deals/*",
+        "https://www.rakuten.com/*"
       ],
       "js": ["db.js", "content.js"],
       "css": ["content.css"]
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["db.js", "deal-detector.js"],
+      "css": ["content.css"],
+      "run_at": "document_end"
     }
   ],
   "host_permissions": [
-    "https://global.americanexpress.com/*",
-    "https://www.americanexpress.com/*",
-    "https://www.groupon.com/*"
+    "<all_urls>"
   ],
   "icons": {
     "16": "icons/icon16.png",

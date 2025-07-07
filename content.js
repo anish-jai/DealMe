@@ -73,22 +73,22 @@ async function scrapeAmexOffers() {
   const offerElements = document.querySelectorAll('[data-locator-id="merchantOffer"]');
   
   // PASS 1: Expand all collapsed offers at once
-  console.log('Pass 1: Expanding all collapsed offers...');
-  const collapsedButtons = [];
-  offerElements.forEach(element => {
-    const expandButton = element.querySelector('button[aria-expanded="false"]');
-    if (expandButton) {
-      collapsedButtons.push(expandButton);
-      expandButton.click();
-    }
-  });
+  // console.log('Pass 1: Expanding all collapsed offers...');
+  // const collapsedButtons = [];
+  // offerElements.forEach(element => {
+  //   const expandButton = element.querySelector('button[aria-expanded="false"]');
+  //   if (expandButton) {
+  //     collapsedButtons.push(expandButton);
+  //     expandButton.click();
+  //   }
+  // });
   
-  console.log(`Found ${collapsedButtons.length} collapsed offers, expanding...`);
+  // console.log(`Found ${collapsedButtons.length} collapsed offers, expanding...`);
   
-  // Wait for all expansions to complete
-  if (collapsedButtons.length > 0) {
-    await new Promise(resolve => setTimeout(resolve, 300));
-  }
+  // // Wait for all expansions to complete
+  // if (collapsedButtons.length > 0) {
+  //   await new Promise(resolve => setTimeout(resolve, 300));
+  // }
   
   // PASS 2: Extract all data including merchant links
   console.log('Pass 2: Extracting offer data...');
@@ -570,7 +570,36 @@ function scrapeRakutenOffers() {
   console.log('Starting Rakuten offers scraping...');
   
   const offers = [];
-  const offerElements = document.querySelectorAll('a.chakra-link[aria-label*="Rakuten coupons and Cash Back"]');
+  
+  // Try multiple selectors for different Rakuten page layouts
+  const selectors = [
+    'a.chakra-link[aria-label*="Rakuten coupons and Cash Back"]', // Main page carousel
+    '.store-tile', // Store listing page
+    '.coupon-card', // Coupon page
+    '.store-card', // Store search results
+    '[data-testid="store-tile"]', // New store tiles
+    '.merchant-card', // Merchant cards
+    '.offer-card', // Offer cards
+    '.deal-card' // Deal cards
+  ];
+  
+  let offerElements = [];
+  
+  // Find elements using multiple selectors
+  for (const selector of selectors) {
+    const elements = document.querySelectorAll(selector);
+    if (elements.length > 0) {
+      console.log(`Found ${elements.length} elements with selector: ${selector}`);
+      offerElements = Array.from(elements);
+      break;
+    }
+  }
+  
+  // If no specific elements found, try to find store links
+  if (offerElements.length === 0) {
+    offerElements = Array.from(document.querySelectorAll('a[href*="rakuten.com/"][href*="_"]'));
+    console.log(`Found ${offerElements.length} Rakuten store links as fallback`);
+  }
   
   offerElements.forEach((element, index) => {
     try {
@@ -580,7 +609,7 @@ function scrapeRakutenOffers() {
         merchant: extractRakutenMerchantName(element),
         discount: extractRakutenDiscountText(element),
         description: extractRakutenDescription(element),
-        expiryDate: null, // Rakuten doesn't show expiry dates in carousel
+        expiryDate: extractRakutenExpiryDate(element),
         category: extractRakutenCategory(element),
         merchantLink: extractRakutenMerchantLink(element),
         scrapedAt: new Date().toISOString(),
@@ -618,6 +647,31 @@ function extractRakutenMerchantName(element) {
     if (match) {
       return match[1].trim();
     }
+    // If no Rakuten suffix, use full alt text
+    if (altText && !altText.toLowerCase().includes('logo')) {
+      return altText.trim();
+    }
+  }
+  
+  // Try to get from store name text
+  const storeNameSelectors = [
+    '.store-name',
+    '.merchant-name', 
+    '.store-title',
+    '.brand-name',
+    'h2', 'h3', 'h4',
+    '.chakra-heading',
+    '.store-text'
+  ];
+  
+  for (const selector of storeNameSelectors) {
+    const nameEl = element.querySelector(selector);
+    if (nameEl && nameEl.textContent.trim()) {
+      const text = nameEl.textContent.trim();
+      if (text.length > 0 && text.length < 50) {
+        return text;
+      }
+    }
   }
   
   // Try to get from aria-label
@@ -628,38 +682,106 @@ function extractRakutenMerchantName(element) {
     if (match) {
       return match[1].trim();
     }
+    // Try other aria-label patterns
+    const cashbackMatch = ariaLabel.match(/(.+?)\s*-\s*\d+\.?\d*%?\s*cash back/i);
+    if (cashbackMatch) {
+      return cashbackMatch[1].trim();
+    }
   }
   
   // Try to get from href URL
-  const href = element.href;
+  const href = element.href || element.closest('a')?.href;
   if (href) {
     // Extract from URL like "https://www.rakuten.com/warriorsshop_15977-xfas"
-    const urlMatch = href.match(/rakuten\.com\/([^_]+)_/i);
+    const urlMatch = href.match(/rakuten\.com\/([^_\/?]+)/i);
     if (urlMatch) {
       // Convert URL slug to readable name
       const urlSlug = urlMatch[1];
       return urlSlug.replace(/([a-z])([A-Z])/g, '$1 $2')
-                   .replace(/\b\w/g, l => l.toUpperCase());
+                   .replace(/\b\w/g, l => l.toUpperCase())
+                   .replace(/[\-\.]/g, ' ');
     }
+  }
+  
+  // Try to get from data attributes
+  const dataName = element.getAttribute('data-store-name') || 
+                   element.getAttribute('data-merchant-name') ||
+                   element.getAttribute('data-brand-name');
+  if (dataName) {
+    return dataName.trim();
   }
   
   return 'Unknown Merchant';
 }
 
 function extractRakutenDiscountText(element) {
-  // Try to get the main cash back percentage
-  const discountEl = element.querySelector('.css-1o3lf2p');
-  if (discountEl && discountEl.textContent.trim()) {
-    const discountText = discountEl.textContent.trim();
-    
-    // Check if there's a "was" price for comparison
-    const wasEl = element.querySelector('.css-1a1exxh');
-    if (wasEl && wasEl.textContent.trim()) {
-      const wasText = wasEl.textContent.trim();
-      return `${discountText} (${wasText})`;
+  // Try to get the main cash back percentage with multiple selectors
+  const discountSelectors = [
+    '.css-1o3lf2p', // Original selector
+    '.cash-back-rate',
+    '.cashback-rate',
+    '.discount-rate',
+    '.store-rate',
+    '.percentage',
+    '.rate-text',
+    '.cashback-text',
+    '.offer-rate',
+    '.rebate-rate'
+  ];
+  
+  for (const selector of discountSelectors) {
+    const discountEl = element.querySelector(selector);
+    if (discountEl && discountEl.textContent.trim()) {
+      const discountText = discountEl.textContent.trim();
+      
+      // Check if there's a "was" price for comparison
+      const wasEl = element.querySelector('.css-1a1exxh, .was-rate, .old-rate');
+      if (wasEl && wasEl.textContent.trim()) {
+        const wasText = wasEl.textContent.trim();
+        return `${discountText} (was ${wasText})`;
+      }
+      
+      return discountText;
     }
-    
-    return discountText;
+  }
+  
+  // Try to extract from text content using regex patterns
+  const textContent = element.textContent;
+  const discountPatterns = [
+    /(\d+\.?\d*%)\s*cash\s*back/i,
+    /(\d+\.?\d*%)\s*back/i,
+    /cash\s*back:\s*(\d+\.?\d*%)/i,
+    /earn\s*(\d+\.?\d*%)/i,
+    /up\s*to\s*(\d+\.?\d*%)/i,
+    /(\d+\.?\d*%)\s*cashback/i,
+    /(\$\d+\.?\d*)\s*cash\s*back/i,
+    /(\$\d+\.?\d*)\s*back/i
+  ];
+  
+  for (const pattern of discountPatterns) {
+    const match = textContent.match(pattern);
+    if (match) {
+      return match[1] + ' cash back';
+    }
+  }
+  
+  // Try to get from aria-label
+  const ariaLabel = element.getAttribute('aria-label');
+  if (ariaLabel) {
+    for (const pattern of discountPatterns) {
+      const match = ariaLabel.match(pattern);
+      if (match) {
+        return match[1] + ' cash back';
+      }
+    }
+  }
+  
+  // Try to get from data attributes
+  const dataRate = element.getAttribute('data-cash-back-rate') || 
+                   element.getAttribute('data-cashback-rate') ||
+                   element.getAttribute('data-rate');
+  if (dataRate) {
+    return dataRate.includes('%') ? dataRate + ' cash back' : dataRate + '% cash back';
   }
   
   return 'Cash back available';
@@ -668,31 +790,167 @@ function extractRakutenDiscountText(element) {
 function extractRakutenDescription(element) {
   const merchantName = extractRakutenMerchantName(element);
   const discount = extractRakutenDiscountText(element);
+  
+  // Try to get specific offer description
+  const descriptionSelectors = [
+    '.offer-description',
+    '.store-description',
+    '.deal-description',
+    '.coupon-description',
+    '.promo-description'
+  ];
+  
+  for (const selector of descriptionSelectors) {
+    const descEl = element.querySelector(selector);
+    if (descEl && descEl.textContent.trim()) {
+      return descEl.textContent.trim();
+    }
+  }
+  
   return `Earn ${discount} on ${merchantName} purchases through Rakuten`;
 }
 
+function extractRakutenExpiryDate(element) {
+  // Try to find expiry date in various formats
+  const expirySelectors = [
+    '.expiry-date',
+    '.exp-date',
+    '.expires',
+    '.valid-until',
+    '.offer-expiry',
+    '.coupon-expiry'
+  ];
+  
+  for (const selector of expirySelectors) {
+    const expiryEl = element.querySelector(selector);
+    if (expiryEl && expiryEl.textContent.trim()) {
+      return expiryEl.textContent.trim();
+    }
+  }
+  
+  // Try to extract from text content
+  const textContent = element.textContent;
+  const datePatterns = [
+    /expires?\s*:?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i,
+    /valid\s*until\s*:?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i,
+    /ends?\s*:?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i,
+    /through\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i
+  ];
+  
+  for (const pattern of datePatterns) {
+    const match = textContent.match(pattern);
+    if (match) {
+      return match[1];
+    }
+  }
+  
+  return null;
+}
+
 function extractRakutenCategory(element) {
+  // Try to get category from element attributes or text
+  const categorySelectors = [
+    '.category',
+    '.store-category',
+    '.merchant-category',
+    '.deal-category',
+    '.tag',
+    '.category-tag'
+  ];
+  
+  for (const selector of categorySelectors) {
+    const categoryEl = element.querySelector(selector);
+    if (categoryEl && categoryEl.textContent.trim()) {
+      return categoryEl.textContent.trim();
+    }
+  }
+  
+  // Try to get from data attributes
+  const dataCategory = element.getAttribute('data-category') || 
+                       element.getAttribute('data-store-category') ||
+                       element.getAttribute('data-merchant-category');
+  if (dataCategory) {
+    return dataCategory;
+  }
+  
   const merchantName = extractRakutenMerchantName(element).toLowerCase();
   
-  // Categorize based on merchant name
+  // Comprehensive categorization based on merchant name
   if (merchantName.includes('nike') || merchantName.includes('adidas') || merchantName.includes('gap') || 
-      merchantName.includes('old navy') || merchantName.includes('sephora') || merchantName.includes('ulta')) {
-    return 'Fashion & Beauty';
-  } else if (merchantName.includes('target') || merchantName.includes('walmart') || merchantName.includes('bed bath')) {
-    return 'Retail';
-  } else if (merchantName.includes('samsung') || merchantName.includes('lenovo') || merchantName.includes('ebay')) {
-    return 'Electronics';
-  } else if (merchantName.includes('groupon')) {
+      merchantName.includes('old navy') || merchantName.includes('h&m') || merchantName.includes('zara') ||
+      merchantName.includes('forever 21') || merchantName.includes('uniqlo') || merchantName.includes('levi') ||
+      merchantName.includes('american eagle') || merchantName.includes('hollister') || merchantName.includes('abercrombie')) {
+    return 'Fashion & Apparel';
+  } else if (merchantName.includes('sephora') || merchantName.includes('ulta') || merchantName.includes('sally beauty') ||
+             merchantName.includes('beauty') || merchantName.includes('cosmetics') || merchantName.includes('makeup')) {
+    return 'Beauty & Personal Care';
+  } else if (merchantName.includes('target') || merchantName.includes('walmart') || merchantName.includes('bed bath') ||
+             merchantName.includes('costco') || merchantName.includes('sams club') || merchantName.includes('bjs')) {
+    return 'Retail & Department Stores';
+  } else if (merchantName.includes('samsung') || merchantName.includes('lenovo') || merchantName.includes('ebay') ||
+             merchantName.includes('best buy') || merchantName.includes('newegg') || merchantName.includes('apple') ||
+             merchantName.includes('dell') || merchantName.includes('hp') || merchantName.includes('microsoft')) {
+    return 'Electronics & Technology';
+  } else if (merchantName.includes('home depot') || merchantName.includes('lowes') || merchantName.includes('wayfair') ||
+             merchantName.includes('ikea') || merchantName.includes('pottery barn') || merchantName.includes('williams sonoma')) {
+    return 'Home & Garden';
+  } else if (merchantName.includes('groupon') || merchantName.includes('livingsocial') || merchantName.includes('deal')) {
     return 'Deals & Coupons';
+  } else if (merchantName.includes('amazon') || merchantName.includes('ebay') || merchantName.includes('etsy')) {
+    return 'Online Marketplace';
+  } else if (merchantName.includes('food') || merchantName.includes('restaurant') || merchantName.includes('delivery') ||
+             merchantName.includes('grubhub') || merchantName.includes('doordash') || merchantName.includes('uber eats')) {
+    return 'Food & Dining';
+  } else if (merchantName.includes('travel') || merchantName.includes('hotel') || merchantName.includes('booking') ||
+             merchantName.includes('expedia') || merchantName.includes('airbnb') || merchantName.includes('kayak')) {
+    return 'Travel & Hospitality';
+  } else if (merchantName.includes('fitness') || merchantName.includes('gym') || merchantName.includes('sport') ||
+             merchantName.includes('athletic') || merchantName.includes('outdoor') || merchantName.includes('rei')) {
+    return 'Sports & Fitness';
+  } else if (merchantName.includes('book') || merchantName.includes('education') || merchantName.includes('course') ||
+             merchantName.includes('amazon') || merchantName.includes('barnes')) {
+    return 'Books & Education';
   }
   
   return 'General';
 }
 
 function extractRakutenMerchantLink(element) {
-  // The href on the element is the Rakuten tracking link
+  // Try to get the main element's href first
   if (element.href) {
     return element.href;
+  }
+  
+  // Try to find a link within the element
+  const linkSelectors = [
+    'a[href*="rakuten.com"]',
+    'a[href*="store"]',
+    'a[href*="shop"]',
+    'a[href]'
+  ];
+  
+  for (const selector of linkSelectors) {
+    const linkEl = element.querySelector(selector);
+    if (linkEl && linkEl.href) {
+      return linkEl.href;
+    }
+  }
+  
+  // Try to get from parent element if this element is within a link
+  const parentLink = element.closest('a[href]');
+  if (parentLink && parentLink.href) {
+    return parentLink.href;
+  }
+  
+  // Try to construct a Rakuten store link from merchant name
+  const merchantName = extractRakutenMerchantName(element);
+  if (merchantName && merchantName !== 'Unknown Merchant') {
+    const cleanName = merchantName.toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/[^a-z0-9]/g, '');
+    
+    // This is a fallback - actual Rakuten store URLs are more complex
+    return `https://www.rakuten.com/${cleanName}`;
   }
   
   return null;
@@ -799,6 +1057,7 @@ function showNoOffersMessage() {
 
 function initializeDealMe() {
   console.log('DealMe content script loaded');
+  console.log('Current URL:', window.location.href);
   
   if (isAmexOffersPage()) {
     console.log('Amex offers page detected');
@@ -824,6 +1083,8 @@ function initializeDealMe() {
     setTimeout(() => {
       createScrapeButton();
     }, 1000);
+  } else {
+    console.log('No matching page detected');
   }
 }
 
